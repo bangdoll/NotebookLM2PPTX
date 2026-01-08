@@ -296,7 +296,7 @@
                         </div>
 
                         <select id="slot-count-select"
-                            class="bg-slate-800 text-slate-300 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700">
+                            class="hidden bg-slate-800 text-slate-300 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700">
                             <option value="4">4 槽位</option>
                             <option value="8">8 槽位</option>
                             <option value="12">12 槽位</option>
@@ -545,8 +545,8 @@
         // 全域設定
         // ============================================
         let apiKey = localStorage.getItem('gemini_api_key') || "";
-        const MODEL_OCR = "gemini-2.5-flash-preview-09-2025";
-        const MODEL_IMAGE = "gemini-2.5-flash-image-preview";
+        const MODEL_OCR = "gemini-3-flash-preview";
+        const MODEL_IMAGE = "gemini-3-pro-image-preview";
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -836,33 +836,42 @@
 
         // 槽位管理
         function initSlots(count) {
-            const currentData = slots.map(s => ({ b64: s.originalBase64, res: s.resultImg.src }));
             $('#slots-container').innerHTML = '';
             slots = [];
-
-            for (let i = 0; i < count; i++) {
-                const clone = $('#slot-template').content.cloneNode(true);
-                const card = clone.querySelector('.slot-card');
-                const data = {
-                    index: i,
-                    el: card,
-                    originalImg: card.querySelector('.original-img'),
-                    resultImg: card.querySelector('.result-img'),
-                    loader: card.querySelector('.slot-loader'),
-                    waitingOverlay: card.querySelector('.slot-waiting'),
-                    originalBase64: null
-                };
-                card.querySelector('.slot-label').textContent = `SLOT ${String(i + 1).padStart(2, '0')}`;
-                card.querySelector('.process-btn').onclick = () => processSlot(i);
-                card.querySelector('.remove-btn').onclick = () => resetSlot(i);
-                slots.push(data);
-                $('#slots-container').appendChild(card);
-                if (currentData[i]?.b64) fillSlotWithData(i, currentData[i]);
-            }
+            for (let i = 0; i < count; i++) addNewSlot();
             updateGlobalControls();
         }
 
+        function addNewSlot() {
+            const i = slots.length;
+            const clone = $('#slot-template').content.cloneNode(true);
+            const card = clone.querySelector('.slot-card');
+            const data = {
+                index: i,
+                el: card,
+                originalImg: card.querySelector('.original-img'),
+                resultImg: card.querySelector('.result-img'),
+                loader: card.querySelector('.slot-loader'),
+                waitingOverlay: card.querySelector('.slot-waiting'),
+                originalBase64: null
+            };
+            card.querySelector('.slot-label').textContent = `SLOT ${String(i + 1).padStart(2, '0')}`;
+            // Remove button now removes the specific slot entirely if it's an extra one, or just clears it if it's one of the base ones?
+            // User requested "don't only have 4", let's make it simple: "Clear" clears content. 
+            // If we want to support "removing the row", that's more complex with grid. 
+            // For now, let's stick to "Clear content" for consistency, but allow endless adding.
+            card.querySelector('.remove-btn').onclick = () => resetSlot(i);
+            card.querySelector('.process-btn').onclick = () => processSlot(i);
+
+            slots.push(data);
+            $('#slots-container').appendChild(card);
+            return data;
+        }
+
         function fillSlotWithData(i, item) {
+            // Check if slot exists, if not create it (though initSlots should handle this if we used it correctly, but for safety)
+            while (slots.length <= i) addNewSlot();
+
             const s = slots[i];
             s.originalBase64 = item.b64;
             s.originalImg.src = `data:image/png;base64,${item.b64}`;
@@ -877,8 +886,12 @@
         }
 
         function fillSlot(url) {
-            const slot = slots.find(s => !s.originalBase64);
-            if (!slot) return showToast('所有欄位皆已佔用', true);
+            let slot = slots.find(s => !s.originalBase64);
+            if (!slot) {
+                // Auto-expand if no empty slot
+                slot = addNewSlot();
+            }
+
             slot.originalBase64 = url.split(',')[1];
             slot.originalImg.src = url;
             slot.el.querySelector('.empty-state').classList.add('hidden');
@@ -910,10 +923,10 @@
                 s.el.querySelector('.download-btn').onclick = () => {
                     const a = document.createElement('a');
                     a.href = s.resultImg.src;
-                    a.download = `cleaned_${i + 1}.png`;
+                    a.download = `cleaned_${s.index + 1}.png`;
                     a.click();
                 };
-                showToast(`Slot ${i + 1} 處理完成`);
+                showToast(`Slot ${s.index + 1} 處理完成`);
             } catch (e) {
                 showToast(`處理失敗: ${e.message}`, true);
             } finally {
@@ -938,14 +951,18 @@
         };
 
         $('#clear-all-slots-btn').onclick = () => {
-            slots.forEach((_, i) => resetSlot(i));
+            // Reset to default 4 slots
+            initSlots(4);
             showToast('工作台已全部清除');
         };
 
-        $('#slot-count-select').onchange = (e) => initSlots(parseInt(e.target.value));
+        // Remove slot count listener since we auto-expand
+        if ($('#slot-count-select')) $('#slot-count-select').style.display = 'none';
 
         $('#export-results-pptx-btn').onclick = () => {
             const results = slots.filter(s => s.resultImg.src.startsWith('data:image'));
+            if (results.length === 0) return showToast('沒有可導出的結果', true);
+
             const pptx = new PptxGenJS();
             pptx.layout = 'LAYOUT_WIDE';
             results.forEach(s => pptx.addSlide().addImage({ data: s.resultImg.src, x: 0, y: 0, w: '100%', h: '100%' }));
