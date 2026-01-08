@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotebookLM 簡報工具箱 - AI 逆向工程</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- PDF.js 核心 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+    <!-- PptxGenJS -->
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+
+    <!-- JSZip & FileSaver (for PPTX merge) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            min-height: 100vh;
+        }
+
+        /* Tab 切換效果 */
+        .tab-btn {
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tab-btn.active {
+            color: #60a5fa;
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            height: 3px;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            border-radius: 2px;
+        }
+
+        /* 拖放區域 */
+        .drop-zone {
+            transition: all 0.3s ease;
+            border: 2px dashed rgba(100, 116, 139, 0.5);
+        }
+
+        .drop-zone:hover,
+        .drop-zone.active {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.05);
+            transform: scale(1.01);
+        }
+
+        /* Loader 動畫 */
+        .loader {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* PDF 頁面網格 */
+        .pdf-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1rem;
+        }
+
+        /* 玻璃態卡片 */
+        .glass-card {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(100, 116, 139, 0.2);
+        }
+
+        /* 漸變按鈕 */
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.4;
+            transform: none;
+            cursor: not-allowed;
+        }
+
+        /* 滾動條 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        /* Slot 卡片 */
+        .slot-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .slot-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 頁面卡片 */
+        .page-card {
+            transition: all 0.2s ease;
+        }
+
+        .page-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+
+        /* 工具區塊隱藏/顯示 */
+        .tool-section {
+            display: none;
+        }
+
+        .tool-section.active {
+            display: block;
+        }
+    </style>
+</head>
+
+<body class="text-slate-100 pb-20">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 glass-card border-b border-slate-700/50">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-black tracking-tight">
+                        <span
+                            class="bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">NotebookLM</span>
+                        <span class="text-slate-300">簡報工具箱</span>
+                    </h1>
+                    <p class="text-slate-500 text-sm font-medium mt-1">AI 逆向工程 · PDF 轉 PPTX · 智慧去字</p>
+                </div>
+
+                <!-- Tab 導航 -->
+                <nav class="flex items-center gap-2">
+                    <div class="flex gap-2 bg-slate-800/50 p-1 rounded-xl">
+                        <button id="tab-pdf"
+                            class="tab-btn active px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                                </path>
+                            </svg>
+                            PDF 解析 & 去字
+                        </button>
+                        <button id="tab-merge"
+                            class="tab-btn px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 text-slate-400 hover:text-slate-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                            </svg>
+                            PPTX 合併
+                        </button>
+                    </div>
+                    <button id="settings-btn"
+                        class="p-2 text-slate-400 hover:text-white transition rounded-xl hover:bg-slate-700/50"
+                        title="API Key 設定">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                            </path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8">
+
+        <!-- ==================== 工具 1: PDF 解析 & 去字 ==================== -->
+        <section id="section-pdf" class="tool-section active space-y-8">
+
+            <!-- PDF 上傳區 -->
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <div
+                        class="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center font-black text-sm">
+                        1</div>
+                    <h2 class="text-lg font-bold text-slate-200">PDF 高精細解析</h2>
+                </div>
+
+                <div id="pdf-drop-zone" class="drop-zone rounded-2xl p-12 text-center cursor-pointer">
+                    <input type="file" id="pdf-file-input" class="hidden" accept="application/pdf">
+
+                    <div id="pdf-empty-state">
+                        <div
+                            class="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z">
+                                </path>
+                            </svg>
+                        </div>
+                        <p class="text-xl font-bold text-slate-300">點擊或拖放 PDF 進行解析</p>
+                        <p class="text-slate-500 text-sm mt-2">系統將自動提取文字內容與排版，支援一鍵導出 PPTX</p>
+                    </div>
+
+                    <div id="pdf-preview-container" class="hidden text-left">
+                        <div class="flex items-center justify-between bg-slate-800/50 p-4 rounded-xl mb-4">
+                            <div class="flex items-center gap-3">
+                                <span id="page-count-tag"
+                                    class="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold">0
+                                    PAGES</span>
+                                <span class="text-xs font-bold text-slate-500">READY FOR ANALYSIS</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <button id="pdf-to-pptx-btn"
+                                    class="btn-primary text-white px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2">
+                                    <span id="pptx-btn-text">視覺還原 PPTX</span>
+                                    <div id="pptx-loader" class="loader !w-3 !h-3 hidden"></div>
+                                </button>
+                                <button id="add-all-pages-btn"
+                                    class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-xl text-xs font-bold">一鍵導入去字</button>
+                                <button id="clear-pdf-btn"
+                                    class="text-xs font-bold text-red-400 px-3 hover:underline">清除</button>
+                            </div>
+                        </div>
+                        <div id="pdf-pages-list" class="pdf-grid"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 圖片去字工作台 -->
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <div class="flex items-center gap-3">
+                        <div
+                            class="w-8 h-8 bg-purple-600 text-white rounded-lg flex items-center justify-center font-black text-sm">
+                            2</div>
+                        <h2 class="text-lg font-bold text-slate-200">圖片去文字工作台</h2>
+                    </div>
+
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <div id="result-export-group"
+                            class="hidden flex items-center gap-3 bg-slate-800/50 px-3 py-2 rounded-xl">
+                            <select id="work-ratio-select"
+                                class="text-xs font-bold border-none bg-transparent outline-none cursor-pointer text-blue-400">
+                                <option value="16:9">16:9</option>
+                                <option value="9:16">9:16</option>
+                                <option value="4:3">4:3</option>
+                            </select>
+                            <button id="export-results-pptx-btn"
+                                class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold">導出結果
+                                PPTX</button>
+                        </div>
+
+                        <select id="slot-count-select"
+                            class="bg-slate-800 text-slate-300 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700">
+                            <option value="4">4 槽位</option>
+                            <option value="8">8 槽位</option>
+                            <option value="12">12 槽位</option>
+                        </select>
+
+                        <button id="clear-all-slots-btn"
+                            class="hidden text-xs font-bold text-red-400 hover:underline">全部清除</button>
+                        <button id="process-all-btn"
+                            class="btn-primary hidden text-white px-4 py-2 rounded-xl text-xs font-bold">開始批次去字</button>
+                    </div>
+                </div>
+
+                <!-- 圖片上傳區 -->
+                <div id="master-drop-zone" class="drop-zone rounded-xl p-6 text-center cursor-pointer mb-6">
+                    <input type="file" id="master-file-input" class="hidden" accept="image/*" multiple>
+                    <p class="text-slate-400 font-medium">在此上傳圖片、從上方 PDF 拖曳，或點擊頁面「＋」導入</p>
+                </div>
+
+                <!-- 槽位容器 -->
+                <div id="slots-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+            </div>
+        </section>
+
+        <!-- ==================== 工具 2: PPTX 合併 ==================== -->
+        <section id="section-merge" class="tool-section">
+            <div class="glass-card rounded-2xl p-8">
+                <div class="text-center mb-8">
+                    <div
+                        class="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-2xl font-black text-slate-200">PPTX 魔法合併工具</h2>
+                    <p class="text-slate-500 mt-2">將文字內容移植到背景模板，實現完美合併</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center mb-8">
+                    <!-- 文字檔上傳 -->
+                    <div id="merge-text-zone"
+                        class="drop-zone rounded-2xl p-6 text-center cursor-pointer min-h-[200px] flex flex-col items-center justify-center">
+                        <input type="file" id="merge-text-input" class="hidden" accept=".pptx">
+                        <div id="merge-text-empty">
+                            <svg class="w-10 h-10 text-slate-500 mx-auto mb-3" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                                </path>
+                            </svg>
+                            <p class="font-bold text-slate-300 text-sm">1. 上傳文字檔 (無背景)</p>
+                            <p class="text-xs text-slate-500 mt-1">點擊或拖放 .pptx</p>
+                        </div>
+                        <div id="merge-text-filled" class="hidden">
+                            <div
+                                class="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mx-auto mb-2">
+                                ✓</div>
+                            <p id="merge-text-name" class="font-bold text-slate-300 text-sm break-all"></p>
+                        </div>
+                    </div>
+
+                    <!-- 箭頭 -->
+                    <div class="hidden md:flex justify-center">
+                        <svg class="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                        </svg>
+                    </div>
+
+                    <!-- 背景檔上傳 -->
+                    <div id="merge-bg-zone"
+                        class="drop-zone rounded-2xl p-6 text-center cursor-pointer min-h-[200px] flex flex-col items-center justify-center">
+                        <input type="file" id="merge-bg-input" class="hidden" accept=".pptx">
+                        <div id="merge-bg-empty">
+                            <svg class="w-10 h-10 text-slate-500 mx-auto mb-3" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <rect width="18" height="18" x="3" y="3" rx="2" ry="2" stroke-width="2"></rect>
+                                <circle cx="9" cy="9" r="2" stroke-width="2"></circle>
+                                <path d="m21 15-3.086-3.086a2 2 0 00-2.828 0L6 21" stroke-width="2"></path>
+                            </svg>
+                            <p class="font-bold text-slate-300 text-sm">2. 上傳背景檔 (無文字)</p>
+                            <p class="text-xs text-slate-500 mt-1">點擊或拖放 .pptx</p>
+                        </div>
+                        <div id="merge-bg-filled" class="hidden">
+                            <div
+                                class="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-2">
+                                ✓</div>
+                            <p id="merge-bg-name" class="font-bold text-slate-300 text-sm break-all"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 合併控制 -->
+                <div id="merge-controls" class="flex flex-col items-center gap-4 pt-6 border-t border-slate-700/50">
+                    <button id="merge-start-btn" disabled
+                        class="btn-primary text-white px-8 py-3 rounded-xl font-bold text-base flex items-center gap-2">
+                        開始合併
+                    </button>
+
+                    <div id="merge-status" class="hidden text-center">
+                        <div id="merge-processing" class="hidden flex items-center gap-2 text-blue-400">
+                            <div class="loader"></div>
+                            <span class="font-bold">正在解析與合併 XML...</span>
+                        </div>
+                        <div id="merge-success" class="hidden space-y-3">
+                            <div class="flex items-center gap-2 text-emerald-400 font-bold text-lg justify-center">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                合併成功！
+                            </div>
+                            <div class="flex gap-3 justify-center">
+                                <button id="merge-download-btn"
+                                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-bold text-sm flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                    </svg>
+                                    下載新檔案
+                                </button>
+                                <button id="merge-reset-btn"
+                                    class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-xl font-bold text-sm">重置</button>
+                            </div>
+                        </div>
+                        <div id="merge-error" class="hidden text-red-400 font-bold"></div>
+                    </div>
+                </div>
+
+                <!-- 日誌區 -->
+                <div id="merge-logs"
+                    class="mt-6 bg-slate-900/50 rounded-xl p-4 font-mono text-sm max-h-48 overflow-y-auto">
+                    <div class="text-slate-500 mb-2 border-b border-slate-700 pb-1">處理日誌:</div>
+                    <div id="merge-log-content" class="space-y-1">
+                        <span class="text-slate-600 italic">等待操作...</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast 通知 -->
+    <div id="toast"
+        class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-2xl opacity-0 transition-all pointer-events-none z-50 font-bold text-sm border border-slate-700">
+    </div>
+    <!-- API Key Settings Modal -->
+    <div id="settings-modal"
+        class="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div
+            class="bg-slate-800 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out]">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-black text-white flex items-center gap-2">
+                        <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z">
+                            </path>
+                        </svg>
+                        API Key 設定
+                    </h3>
+                    <button id="close-settings-btn" class="text-slate-400 hover:text-white transition">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                        <p class="text-sm text-blue-200">
+                            您的 API Key 將會儲存在瀏覽器的
+                            <span class="font-bold font-mono bg-blue-500/20 px-1 rounded">localStorage</span>
+                            中，不會傳送到任何伺服器。
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Google
+                            Gemini API Key</label>
+                        <input type="password" id="api-key-input"
+                            class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-mono"
+                            placeholder="AIzA...">
+                        <p class="text-xs text-slate-500 mt-2 text-right">
+                            還沒有 Key？<a href="https://aistudio.google.com/app/apikey" target="_blank"
+                                class="text-blue-400 hover:text-blue-300 underline">前往申請</a>
+                        </p>
+                    </div>
+
+                    <button id="save-api-key-btn"
+                        class="w-full btn-primary text-white py-3 rounded-xl font-bold text-sm shadow-lg hover:shadow-blue-500/25 transition">
+                        儲存設定
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- 槽位模板 -->
+    <template id="slot-template">
+        <div class="slot-card glass-card rounded-2xl p-4 flex flex-col">
+            <div
+                class="empty-state flex-grow flex flex-col items-center justify-center text-slate-500 italic font-bold text-sm min-h-[280px]">
+                <div
+                    class="w-10 h-10 border-2 border-dashed border-slate-600 rounded-lg flex items-center justify-center mb-2 text-slate-600">
+                    +</div>
+                Empty
+            </div>
+            <div class="active-state hidden flex-grow flex flex-col">
+                <div class="flex justify-between mb-3">
+                    <span class="text-xs font-bold text-blue-400 slot-label uppercase tracking-widest">SLOT 01</span>
+                    <button class="remove-btn text-slate-500 hover:text-red-400 transition font-bold text-lg">×</button>
+                </div>
+                <div class="space-y-3">
+                    <div
+                        class="aspect-video bg-slate-800/50 rounded-xl overflow-hidden border border-slate-700 relative">
+                        <img class="original-img w-full h-full object-contain" src="">
+                        <div
+                            class="slot-loader absolute inset-0 bg-slate-900/80 hidden flex-col items-center justify-center">
+                            <div class="loader mb-2"></div>
+                            <span class="text-xs font-bold text-blue-400 animate-pulse">AI Analyzing</span>
+                        </div>
+                        <div
+                            class="slot-waiting absolute inset-0 bg-slate-900/60 hidden flex-col items-center justify-center backdrop-blur-sm">
+                            <span class="bg-slate-600 text-white px-2 py-1 rounded text-xs font-bold">排隊中</span>
+                        </div>
+                    </div>
+                    <div
+                        class="aspect-video bg-slate-800/50 rounded-xl overflow-hidden border border-slate-700 relative flex items-center justify-center">
+                        <img class="result-img w-full h-full object-contain hidden" src="">
+                        <div class="placeholder text-slate-600 italic font-bold text-xs">No Result</div>
+                    </div>
+                </div>
+                <div class="flex gap-2 mt-4">
+                    <button
+                        class="process-btn bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded-lg flex-1 font-bold transition">去文字</button>
+                    <button
+                        class="download-btn bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 rounded-lg font-bold disabled:opacity-30 transition"
+                        disabled>下載</button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        // ============================================
+        // 全域設定
+        // ============================================
+        let apiKey = localStorage.getItem('gemini_api_key') || "";
+        const MODEL_OCR = "gemini-2.5-flash-preview-09-2025";
+        const MODEL_IMAGE = "gemini-2.5-flash-image-preview";
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // ============================================
+        // 工具函數
+        // ============================================
+        const $ = (sel) => document.querySelector(sel);
+        const $$ = (sel) => document.querySelectorAll(sel);
+        const toast = $('#toast');
+
+        function showToast(msg, isError = false) {
+            toast.textContent = msg;
+            toast.style.backgroundColor = isError ? '#ef4444' : '#1e293b';
+            toast.classList.replace('opacity-0', 'opacity-100');
+            setTimeout(() => toast.classList.replace('opacity-100', 'opacity-0'), 3000);
+        }
+
+        const wait = (ms) => new Promise(res => setTimeout(res, ms));
+
+        // API Key 檢查與提示
+        function checkApiKey() {
+            if (!apiKey) {
+                // 延遲一下讓畫面先渲染
+                setTimeout(() => {
+                    $('#settings-modal').classList.remove('hidden');
+                    $('#settings-modal').classList.add('flex');
+                    $('#api-key-input').focus();
+                }, 500);
+                return false;
+            }
+            return true;
+        }
+
+        // 增強型重試機制
+        async function fetchWithRetry(url, options, maxRetries = 6) {
+            if (!checkApiKey()) throw new Error("請先設定 API Key");
+
+            const delays = [1000, 2000, 4000, 8000, 16000, 32000];
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) return await response.json();
+
+                    if (response.status === 400 && url.includes('key=')) {
+                        throw new Error("API Key 無效或請求格式錯誤");
+                    }
+
+                    if (response.status === 429) {
+                        const waitTime = delays[i];
+                        showToast(`頻率限制，等待 ${waitTime / 1000} 秒後重試...`, true);
+                        await wait(waitTime);
+                        continue;
+                    }
+                    if (response.status >= 500) { await wait(2000); continue; }
+                    const errorJson = await response.json();
+                    throw new Error(errorJson.error?.message || `HTTP ${response.status}`);
+                } catch (e) {
+                    if (i === maxRetries - 1) throw e;
+                    await wait(delays[i]);
+                }
+            }
+        }
+
+        // Settings Modal 邏輯
+        if ($('#settings-btn')) {
+            $('#settings-btn').onclick = () => {
+                $('#api-key-input').value = apiKey;
+                $('#settings-modal').classList.remove('hidden');
+                $('#settings-modal').classList.add('flex');
+            };
+        }
+
+        if ($('#save-api-key-btn')) {
+            $('#save-api-key-btn').onclick = () => {
+                const inputKey = $('#api-key-input').value.trim();
+                if (inputKey) {
+                    apiKey = inputKey;
+                    localStorage.setItem('gemini_api_key', apiKey);
+                    $('#settings-modal').classList.add('hidden');
+                    $('#settings-modal').classList.remove('flex');
+                    showToast('API Key 已儲存');
+                } else {
+                    showToast('請輸入有效的 API Key', true);
+                }
+            };
+        }
+
+        if ($('#close-settings-btn')) {
+            $('#close-settings-btn').onclick = () => {
+                $('#settings-modal').classList.add('hidden');
+                $('#settings-modal').classList.remove('flex');
+            };
+        }
+
+        // 拖放設置
+        function setupDragAndDrop(element, onDropCallback) {
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                element.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+            });
+            element.addEventListener('dragover', () => element.classList.add('active'));
+            element.addEventListener('dragleave', () => element.classList.remove('active'));
+            element.addEventListener('drop', (e) => {
+                element.classList.remove('active');
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) onDropCallback(files);
+            });
+        }
+
+        // ============================================
+        // Tab 切換
+        // ============================================
+        $('#tab-pdf').onclick = () => switchTab('pdf');
+        $('#tab-merge').onclick = () => switchTab('merge');
+
+        function switchTab(tab) {
+            $$('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.classList.add('text-slate-400');
+            });
+            $(`#tab-${tab}`).classList.add('active');
+            $(`#tab-${tab}`).classList.remove('text-slate-400');
+
+            $$('.tool-section').forEach(sec => sec.classList.remove('active'));
+            $(`#section-${tab}`).classList.add('active');
+        }
+
+        // ============================================
+        // 工具 1: PDF 解析 & 去字
+        // ============================================
+        let currentPdfPageUrls = [];
+        let slots = [];
+
+        // PDF 上傳
+        setupDragAndDrop($('#pdf-drop-zone'), (files) => {
+            const file = files[0];
+            if (file.type === 'application/pdf') processPdf(file);
+            else showToast('請拖放 PDF 檔案', true);
+        });
+
+        $('#pdf-file-input').onchange = (e) => { if (e.target.files[0]) processPdf(e.target.files[0]); };
+        $('#pdf-drop-zone').onclick = (e) => { if (!e.target.closest('#pdf-preview-container')) $('#pdf-file-input').click(); };
+
+        async function processPdf(file) {
+            showToast('正在解析 PDF 視覺佈局...');
+            currentPdfPageUrls = [];
+            $('#pdf-preview-container').classList.remove('hidden');
+            $('#pdf-pages-list').innerHTML = '';
+            $('#pdf-empty-state').classList.add('hidden');
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                $('#page-count-tag').textContent = `${pdf.numPages} PAGES`;
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 2.5 });
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                    const dataUrl = canvas.toDataURL('image/png');
+                    currentPdfPageUrls.push(dataUrl);
+
+                    const div = document.createElement('div');
+                    div.className = 'page-card glass-card p-2 rounded-xl relative group cursor-pointer';
+                    div.innerHTML = `
+                <div class="relative overflow-hidden rounded-lg">
+                    <img src="${dataUrl}" class="w-full">
+                    <button class="add-btn absolute top-2 right-2 bg-blue-600 hover:bg-blue-700 text-white w-7 h-7 rounded-lg opacity-0 group-hover:opacity-100 transition shadow-xl font-black text-sm">＋</button>
+                </div>
+                <div class="text-xs font-bold text-center mt-2 text-slate-500">Page ${i}</div>
+            `;
+                    div.querySelector('.add-btn').onclick = (e) => { e.stopPropagation(); fillSlot(dataUrl); };
+                    $('#pdf-pages-list').appendChild(div);
+                }
+                showToast(`成功解析 ${pdf.numPages} 頁`);
+            } catch (err) {
+                showToast('PDF 解析失敗: ' + err.message, true);
+            }
+        }
+
+        $('#clear-pdf-btn').onclick = () => {
+            $('#pdf-pages-list').innerHTML = '';
+            currentPdfPageUrls = [];
+            $('#pdf-preview-container').classList.add('hidden');
+            $('#pdf-empty-state').classList.remove('hidden');
+        };
+
+        $('#add-all-pages-btn').onclick = () => currentPdfPageUrls.forEach(url => fillSlot(url));
+
+        // PPTX 視覺還原
+        $('#pdf-to-pptx-btn').onclick = async () => {
+            const btn = $('#pdf-to-pptx-btn');
+            const txt = $('#pptx-btn-text');
+            const ldr = $('#pptx-loader');
+            btn.disabled = true;
+            ldr.classList.remove('hidden');
+
+            try {
+                const pptx = new PptxGenJS();
+                pptx.layout = 'LAYOUT_WIDE';
+
+                for (let i = 0; i < currentPdfPageUrls.length; i++) {
+                    txt.textContent = `辨識中 (${i + 1}/${currentPdfPageUrls.length})`;
+                    const base64 = currentPdfPageUrls[i].split(',')[1];
+                    const blocks = await callAiOcr(base64);
+                    const slide = pptx.addSlide();
+                    slide.background = { fill: "FFFFFF" };
+
+                    if (blocks && Array.isArray(blocks) && blocks.length > 0) {
+                        blocks.forEach(block => {
+                            if (!block.text || !block.box_2d) return;
+                            let [ymin, xmin, ymax, xmax] = block.box_2d;
+                            if (ymax <= 1 && xmax <= 1) {
+                                ymin *= 1000; xmin *= 1000; ymax *= 1000; xmax *= 1000;
+                            }
+                            const xP = xmin / 10, yP = ymin / 10;
+                            const wP = (xmax - xmin) / 10, hP = (ymax - ymin) / 10;
+                            slide.addText(block.text, {
+                                x: `${xP.toFixed(2)}%`,
+                                y: `${yP.toFixed(2)}%`,
+                                w: `${wP.toFixed(2)}%`,
+                                h: `${hP.toFixed(2)}%`,
+                                fontSize: block.font_size || 12,
+                                color: block.color?.replace('#', '') || '000000',
+                                bold: block.is_bold || false,
+                                align: block.align || 'left',
+                                valign: 'middle',
+                                margin: 0
+                            });
+                        });
+                        showToast(`第 ${i + 1} 頁辨識到 ${blocks.length} 個文字塊`);
+                    } else {
+                        showToast(`第 ${i + 1} 頁未偵測到明顯文字`, true);
+                    }
+                    await wait(1800);
+                }
+
+                pptx.writeFile({ fileName: `Restore_${Date.now()}.pptx` });
+                showToast('PPTX 重建成功！');
+            } catch (err) {
+                console.error(err);
+                showToast(`辨識出錯: ${err.message}`, true);
+            } finally {
+                btn.disabled = false;
+                ldr.classList.add('hidden');
+                txt.textContent = '視覺還原 PPTX';
+            }
+        };
+
+        async function callAiOcr(base64) {
+            const prompt = `請辨識圖片中「所有」文字區塊。JSON 格式包含：text, box_2d[ymin, xmin, ymax, xmax], font_size, is_bold, align, color。座標比例 0-1000。`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                text: { type: "STRING" },
+                                box_2d: { type: "ARRAY", items: { type: "NUMBER" }, minItems: 4, maxItems: 4 },
+                                font_size: { type: "NUMBER" },
+                                is_bold: { type: "BOOLEAN" },
+                                align: { type: "STRING" },
+                                color: { type: "STRING" }
+                            },
+                            required: ["text", "box_2d"]
+                        }
+                    }
+                }
+            };
+            const data = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_OCR}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            return textResult ? JSON.parse(textResult) : [];
+        }
+
+        // 槽位管理
+        function initSlots(count) {
+            const currentData = slots.map(s => ({ b64: s.originalBase64, res: s.resultImg.src }));
+            $('#slots-container').innerHTML = '';
+            slots = [];
+
+            for (let i = 0; i < count; i++) {
+                const clone = $('#slot-template').content.cloneNode(true);
+                const card = clone.querySelector('.slot-card');
+                const data = {
+                    index: i,
+                    el: card,
+                    originalImg: card.querySelector('.original-img'),
+                    resultImg: card.querySelector('.result-img'),
+                    loader: card.querySelector('.slot-loader'),
+                    waitingOverlay: card.querySelector('.slot-waiting'),
+                    originalBase64: null
+                };
+                card.querySelector('.slot-label').textContent = `SLOT ${String(i + 1).padStart(2, '0')}`;
+                card.querySelector('.process-btn').onclick = () => processSlot(i);
+                card.querySelector('.remove-btn').onclick = () => resetSlot(i);
+                slots.push(data);
+                $('#slots-container').appendChild(card);
+                if (currentData[i]?.b64) fillSlotWithData(i, currentData[i]);
+            }
+            updateGlobalControls();
+        }
+
+        function fillSlotWithData(i, item) {
+            const s = slots[i];
+            s.originalBase64 = item.b64;
+            s.originalImg.src = `data:image/png;base64,${item.b64}`;
+            s.el.querySelector('.empty-state').classList.add('hidden');
+            s.el.querySelector('.active-state').classList.remove('hidden');
+            if (item.res && item.res.startsWith('data')) {
+                s.resultImg.src = item.res;
+                s.resultImg.classList.remove('hidden');
+                s.el.querySelector('.placeholder').classList.add('hidden');
+                s.el.querySelector('.download-btn').disabled = false;
+            }
+        }
+
+        function fillSlot(url) {
+            const slot = slots.find(s => !s.originalBase64);
+            if (!slot) return showToast('所有欄位皆已佔用', true);
+            slot.originalBase64 = url.split(',')[1];
+            slot.originalImg.src = url;
+            slot.el.querySelector('.empty-state').classList.add('hidden');
+            slot.el.querySelector('.active-state').classList.remove('hidden');
+            updateGlobalControls();
+        }
+
+        async function processSlot(i) {
+            const s = slots[i];
+            if (!s.originalBase64) return;
+            s.loader.classList.remove('hidden');
+            s.loader.style.display = 'flex';
+
+            try {
+                const prompt = "Please remove all text from this image. Fill the gaps using the surrounding background texture to make it look clean and natural.";
+                const data = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_IMAGE}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: s.originalBase64 } }] }],
+                        generationConfig: { responseModalities: ['IMAGE'] }
+                    })
+                });
+                const b64 = data.candidates[0].content.parts.find(p => p.inlineData).inlineData.data;
+                s.resultImg.src = `data:image/png;base64,${b64}`;
+                s.resultImg.classList.remove('hidden');
+                s.el.querySelector('.placeholder').classList.add('hidden');
+                s.el.querySelector('.download-btn').disabled = false;
+                s.el.querySelector('.download-btn').onclick = () => {
+                    const a = document.createElement('a');
+                    a.href = s.resultImg.src;
+                    a.download = `cleaned_${i + 1}.png`;
+                    a.click();
+                };
+                showToast(`Slot ${i + 1} 處理完成`);
+            } catch (e) {
+                showToast(`處理失敗: ${e.message}`, true);
+            } finally {
+                s.loader.classList.add('hidden');
+                s.loader.style.display = 'none';
+                updateGlobalControls();
+            }
+        }
+
+        $('#process-all-btn').onclick = async () => {
+            const pending = slots.filter(s => s.originalBase64 && !s.resultImg.src.startsWith('data'));
+            if (pending.length === 0) return;
+            showToast(`佇列啟動：開始依序處理 ${pending.length} 張圖片...`);
+            pending.forEach(s => { s.waitingOverlay.classList.remove('hidden'); s.waitingOverlay.style.display = 'flex'; });
+            for (const s of pending) {
+                s.waitingOverlay.classList.add('hidden');
+                s.waitingOverlay.style.display = 'none';
+                await processSlot(s.index);
+                await wait(2000);
+            }
+            showToast('批次處理完成');
+        };
+
+        $('#clear-all-slots-btn').onclick = () => {
+            slots.forEach((_, i) => resetSlot(i));
+            showToast('工作台已全部清除');
+        };
+
+        $('#slot-count-select').onchange = (e) => initSlots(parseInt(e.target.value));
+
+        $('#export-results-pptx-btn').onclick = () => {
+            const results = slots.filter(s => s.resultImg.src.startsWith('data:image'));
+            const pptx = new PptxGenJS();
+            pptx.layout = 'LAYOUT_WIDE';
+            results.forEach(s => pptx.addSlide().addImage({ data: s.resultImg.src, x: 0, y: 0, w: '100%', h: '100%' }));
+            pptx.writeFile({ fileName: `Results_${Date.now()}.pptx` });
+            showToast('結果已導出');
+        };
+
+        function resetSlot(i) {
+            const s = slots[i];
+            s.originalBase64 = null;
+            s.resultImg.src = '';
+            s.resultImg.classList.add('hidden');
+            s.el.querySelector('.empty-state').classList.remove('hidden');
+            s.el.querySelector('.active-state').classList.add('hidden');
+            s.el.querySelector('.placeholder').classList.remove('hidden');
+            updateGlobalControls();
+        }
+
+        function updateGlobalControls() {
+            const hasProcessable = slots.some(s => s.originalBase64 && !s.resultImg.src.startsWith('data'));
+            const hasResults = slots.some(s => s.resultImg.src.startsWith('data:image'));
+            const hasAnyContent = slots.some(s => s.originalBase64);
+            $('#process-all-btn').classList.toggle('hidden', !hasProcessable);
+            $('#result-export-group').classList.toggle('hidden', !hasResults);
+            $('#clear-all-slots-btn').classList.toggle('hidden', !hasAnyContent);
+        }
+
+        // 圖片上傳
+        setupDragAndDrop($('#master-drop-zone'), async (files) => {
+            for (const file of Array.from(files)) {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => fillSlot(ev.target.result);
+                    reader.readAsDataURL(file);
+                }
+            }
+        });
+        $('#master-drop-zone').onclick = () => $('#master-file-input').click();
+        $('#master-file-input').onchange = (e) => {
+            Array.from(e.target.files).forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => fillSlot(ev.target.result);
+                    reader.readAsDataURL(file);
+                }
+            });
+        };
+
+        // ============================================
+        // 工具 2: PPTX 合併
+        // ============================================
+        let mergeTextFile = null;
+        let mergeBgFile = null;
+        let mergeDownloadUrl = null;
+
+        // 文字檔上傳
+        setupDragAndDrop($('#merge-text-zone'), (files) => {
+            const file = files[0];
+            if (file.name.endsWith('.pptx')) setMergeFile('text', file);
+            else showToast('請上傳 .pptx 格式', true);
+        });
+        $('#merge-text-zone').onclick = () => $('#merge-text-input').click();
+        $('#merge-text-input').onchange = (e) => { if (e.target.files[0]) setMergeFile('text', e.target.files[0]); };
+
+        // 背景檔上傳
+        setupDragAndDrop($('#merge-bg-zone'), (files) => {
+            const file = files[0];
+            if (file.name.endsWith('.pptx')) setMergeFile('bg', file);
+            else showToast('請上傳 .pptx 格式', true);
+        });
+        $('#merge-bg-zone').onclick = () => $('#merge-bg-input').click();
+        $('#merge-bg-input').onchange = (e) => { if (e.target.files[0]) setMergeFile('bg', e.target.files[0]); };
+
+        function setMergeFile(type, file) {
+            if (type === 'text') {
+                mergeTextFile = file;
+                $('#merge-text-empty').classList.add('hidden');
+                $('#merge-text-filled').classList.remove('hidden');
+                $('#merge-text-name').textContent = file.name;
+            } else {
+                mergeBgFile = file;
+                $('#merge-bg-empty').classList.add('hidden');
+                $('#merge-bg-filled').classList.remove('hidden');
+                $('#merge-bg-name').textContent = file.name;
+            }
+            $('#merge-start-btn').disabled = !(mergeTextFile && mergeBgFile);
+        }
+
+        function addMergeLog(msg) {
+            const container = $('#merge-log-content');
+            if (container.querySelector('.italic')) container.innerHTML = '';
+            const div = document.createElement('div');
+            div.className = 'text-emerald-400';
+            div.textContent = `> ${msg}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        $('#merge-start-btn').onclick = async () => {
+            if (!mergeTextFile || !mergeBgFile) return;
+
+            $('#merge-start-btn').classList.add('hidden');
+            $('#merge-status').classList.remove('hidden');
+            $('#merge-processing').classList.remove('hidden');
+            $('#merge-success').classList.add('hidden');
+            $('#merge-error').classList.add('hidden');
+            $('#merge-log-content').innerHTML = '';
+
+            addMergeLog('初始化處理程序...');
+
+            try {
+                const textZip = new JSZip();
+                const bgZip = new JSZip();
+
+                addMergeLog('讀取: 文字來源檔...');
+                const textContent = await textZip.loadAsync(mergeTextFile);
+                addMergeLog('讀取: 背景基底檔...');
+                const bgContent = await bgZip.loadAsync(mergeBgFile);
+
+                const textSlides = Object.keys(textContent.files).filter(path => path.match(/ppt\/slides\/slide\d+\.xml/));
+                const bgSlides = Object.keys(bgContent.files).filter(path => path.match(/ppt\/slides\/slide\d+\.xml/));
+
+                const sorter = (a, b) => {
+                    const getNum = (str) => { const match = str.match(/slide(\d+)\.xml/); return match ? parseInt(match[1]) : 0; };
+                    return getNum(a) - getNum(b);
+                };
+                textSlides.sort(sorter);
+                bgSlides.sort(sorter);
+
+                addMergeLog(`偵測: 文字檔 ${textSlides.length} 頁, 背景檔 ${bgSlides.length} 頁`);
+
+                const processCount = Math.min(textSlides.length, bgSlides.length);
+                const parser = new DOMParser();
+                const serializer = new XMLSerializer();
+
+                const getSpTree = (doc) => {
+                    if (!doc) return null;
+                    let tree = doc.getElementsByTagName("p:spTree")[0];
+                    if (tree) return tree;
+                    const all = doc.getElementsByTagName("*");
+                    for (let i = 0; i < all.length; i++) {
+                        if (all[i].localName === "spTree") return all[i];
+                    }
+                    return null;
+                };
+
+                for (let i = 0; i < processCount; i++) {
+                    const textSlidePath = textSlides[i];
+                    const bgSlidePath = bgSlides[i];
+
+                    const textXmlStr = await textContent.file(textSlidePath).async("string");
+                    const bgXmlStr = await bgContent.file(bgSlidePath).async("string");
+
+                    const textDoc = parser.parseFromString(textXmlStr, "application/xml");
+                    const bgDoc = parser.parseFromString(bgXmlStr, "application/xml");
+
+                    if (textDoc.getElementsByTagName("parsererror").length > 0) {
+                        throw new Error(`解析文字檔 XML 失敗: ${textSlidePath}`);
+                    }
+
+                    const textSpTree = getSpTree(textDoc);
+                    const bgSpTree = getSpTree(bgDoc);
+
+                    if (textSpTree && bgSpTree) {
+                        const textChildren = Array.from(textSpTree.childNodes);
+                        let addedCount = 0;
+                        textChildren.forEach(node => {
+                            const localName = node.localName || (node.nodeName ? node.nodeName.split(':').pop() : '');
+                            const allowedTags = ['sp', 'grpSp', 'graphicFrame', 'pic'];
+                            if (allowedTags.includes(localName)) {
+                                try {
+                                    const clonedNode = bgDoc.importNode(node, true);
+                                    const cNvPr = clonedNode.getElementsByTagName ?
+                                        (clonedNode.getElementsByTagName("p:cNvPr")[0] || clonedNode.getElementsByTagName("cNvPr")[0]) : null;
+                                    if (cNvPr && cNvPr.getAttribute("id")) {
+                                        cNvPr.setAttribute("id", cNvPr.getAttribute("id") + "999");
+                                    }
+                                    bgSpTree.appendChild(clonedNode);
+                                    addedCount++;
+                                } catch (e) { console.warn("Node import failed", e); }
+                            }
+                        });
+                        addMergeLog(`第 ${i + 1} 頁: 合併了 ${addedCount} 個物件`);
+                    } else {
+                        addMergeLog(`第 ${i + 1} 頁: 找不到內容結構(spTree)，跳過`);
+                    }
+
+                    const newBgXmlStr = serializer.serializeToString(bgDoc);
+                    bgContent.file(bgSlidePath, newBgXmlStr);
+                }
+
+                addMergeLog('正在打包新檔案...');
+                const content = await bgContent.generateAsync({ type: "blob" });
+                mergeDownloadUrl = URL.createObjectURL(content);
+
+                $('#merge-processing').classList.add('hidden');
+                $('#merge-success').classList.remove('hidden');
+                addMergeLog('處理完成！');
+
+            } catch (err) {
+                console.error(err);
+                $('#merge-processing').classList.add('hidden');
+                $('#merge-error').classList.remove('hidden');
+                $('#merge-error').textContent = `錯誤: ${err.message}`;
+                addMergeLog(`錯誤: ${err.message}`);
+            }
+        };
+
+        $('#merge-download-btn').onclick = () => {
+            if (mergeDownloadUrl) {
+                const a = document.createElement('a');
+                a.href = mergeDownloadUrl;
+                a.download = "merged_presentation.pptx";
+                a.click();
+            }
+        };
+
+        $('#merge-reset-btn').onclick = () => {
+            mergeTextFile = null;
+            mergeBgFile = null;
+            mergeDownloadUrl = null;
+
+            $('#merge-text-empty').classList.remove('hidden');
+            $('#merge-text-filled').classList.add('hidden');
+            $('#merge-bg-empty').classList.remove('hidden');
+            $('#merge-bg-filled').classList.add('hidden');
+
+            $('#merge-start-btn').classList.remove('hidden');
+            $('#merge-start-btn').disabled = true;
+            $('#merge-status').classList.add('hidden');
+
+            $('#merge-log-content').innerHTML = '<span class="text-slate-600 italic">等待操作...</span>';
+        };
+
+        // 初始化
+        initSlots(4);
+    </script>
+</body>
+
+</html>
