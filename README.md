@@ -7,12 +7,12 @@
 ### 1. PDF 高精細解析 & 視覺還原
 - **PDF 匯入**：支援拖放或點擊上傳 PDF 檔案。
 - **高解析度渲染**：將 PDF 頁面轉換為高解析度圖像，保留原始排版細節。
-- **AI 視覺還原**：利用 Gemini 2.5 Flash 模型進行 OCR 識別，提取文字區塊及其屬性（座標、字體大小、顏色等），並將其重建為可編輯的 PPTX 幻燈片。
+- **AI 視覺還原**：利用最新 **Gemini 3 Flash Preview** 模型進行 OCR 識別，速度更快更精準。
 
 ### 2. AI 圖片智慧去字
 - **圖片去文字工作台**：專門針對簡報背景圖設計的去字功能。
-- **多槽位批次處理**：支援 4/8/12 個工作槽位，可同時處理多張圖片。
-- **AI 填補技術**：使用 Gemini 2.5 Flash Image 模型，移除文字後自動填補背景紋理，效果自然。
+- **動態無限槽位**：不再受限於固定數量，系統會根據匯入的圖片數量自動增加工作槽位，支援大量批次處理。
+- **AI 填補技術**：整合頂尖的 **Gemini 3 Pro Image Preview** 模型，移除文字後的背景填補效果更自然、細節更豐富。
 - **一鍵導出**：處理完成的乾淨背景圖可直接匯出為 PPTX。
 
 ### 3. PPTX 魔法合併
@@ -32,7 +32,7 @@
 - **PDF 處理**：PDF.js
 - **PPTX 生成**：PptxGenJS
 - **PPTX 解析/壓縮**：JSZip & FileSaver.js
-- **AI 模型**：Google Gemini API (gemini-2.5-flash-preview, gemini-2.5-flash-image-preview)
+- **AI 模型**：Google Gemini API (gemini-3-flash-preview, gemini-3-pro-image-preview)
 
 ## 授權
 
