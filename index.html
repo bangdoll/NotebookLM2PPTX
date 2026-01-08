@@ -474,6 +474,32 @@
                         </p>
                     </div>
 
+                    <!-- API 模式選擇 -->
+                    <div class="space-y-2">
+                        <label class="block text-slate-400 text-xs font-bold uppercase tracking-wider">API 模式
+                            (速度控制)</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <label class="cursor-pointer relative">
+                                <input type="radio" name="api_tier" value="free" class="peer sr-only" checked>
+                                <div
+                                    class="p-3 rounded-xl bg-slate-900 border border-slate-700 peer-checked:border-blue-500 peer-checked:bg-blue-500/10 transition text-center hover:bg-slate-700/50">
+                                    <div class="font-bold text-sm text-white">🐢 免費版</div>
+                                    <div class="text-[10px] text-slate-400 mt-1">穩定慢速 (15 RPM)</div>
+                                </div>
+                            </label>
+                            <label class="cursor-pointer relative">
+                                <input type="radio" name="api_tier" value="paid" class="peer sr-only">
+                                <div
+                                    class="p-3 rounded-xl bg-slate-900 border border-slate-700 peer-checked:border-purple-500 peer-checked:bg-purple-500/10 transition text-center hover:bg-slate-700/50">
+                                    <div class="font-bold text-sm text-white">🚀 付費版</div>
+                                    <div class="text-[10px] text-slate-400 mt-1">高速併發 (Pay-as-you-go)</div>
+                                    <a href="https://aistudio.google.com/app/plan_information" target="_blank"
+                                        class="text-[9px] text-purple-400 underline mt-1 block hover:text-purple-300">去綁定信用卡</a>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
                     <div>
                         <label class="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Google
                             Gemini API Key</label>
@@ -544,50 +570,65 @@
         // ============================================
         // 全域設定
         // ============================================
+        // Global settings
         let apiKey = localStorage.getItem('gemini_api_key') || "";
-        const MODEL_OCR = "gemini-3-flash-preview";
-        const MODEL_IMAGE = "gemini-3-pro-image-preview";
+        let apiTier = localStorage.getItem('gemini_api_tier') || "free"; // 'free' or 'paid'
 
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        // ... (constants) ...
 
-        // ============================================
-        // 工具函數
-        // ============================================
-        const $ = (sel) => document.querySelector(sel);
-        const $$ = (sel) => document.querySelectorAll(sel);
-        const toast = $('#toast');
+        // ... (pdfjs init) ...
 
-        function showToast(msg, isError = false) {
-            toast.textContent = msg;
-            toast.style.backgroundColor = isError ? '#ef4444' : '#1e293b';
-            toast.classList.replace('opacity-0', 'opacity-100');
-            setTimeout(() => toast.classList.replace('opacity-100', 'opacity-0'), 3000);
+        // ... (helper functions) ...
+
+        // ... (checkApiKey) ...
+
+        // Settings Modal Logic
+        if ($('#settings-btn')) {
+            $('#settings-btn').onclick = () => {
+                $('#api-key-input').value = apiKey;
+                // Set radio button
+                const radio = $(`input[name="api_tier"][value="${apiTier}"]`);
+                if (radio) radio.checked = true;
+
+                $('#settings-modal').classList.remove('hidden');
+                $('#settings-modal').classList.add('flex');
+            };
         }
 
-        const wait = (ms) => new Promise(res => setTimeout(res, ms));
+        if ($('#save-api-key-btn')) {
+            $('#save-api-key-btn').onclick = () => {
+                const inputKey = $('#api-key-input').value.trim();
+                const selectedTier = $('input[name="api_tier"]:checked').value;
 
-        // API Key 檢查與提示
-        function checkApiKey() {
-            if (!apiKey) {
-                // 延遲一下讓畫面先渲染
-                setTimeout(() => {
-                    $('#settings-modal').classList.remove('hidden');
-                    $('#settings-modal').classList.add('flex');
-                    $('#api-key-input').focus();
-                }, 500);
-                return false;
-            }
-            return true;
+                if (inputKey) {
+                    apiKey = inputKey;
+                    apiTier = selectedTier;
+
+                    localStorage.setItem('gemini_api_key', apiKey);
+                    localStorage.setItem('gemini_api_tier', apiTier);
+
+                    $('#settings-modal').classList.add('hidden');
+                    $('#settings-modal').classList.remove('flex');
+                    showToast(`設定已儲存 (${apiTier === 'free' ? '免費版模式' : '付費版模式'})`);
+                } else {
+                    showToast('請輸入有效的 API Key', true);
+                }
+            };
         }
 
-        // 增強型重試機制
+        // ... (rest of settings logic) ...
+
+        // 增強型重試機制 (No changes needed here, 429 handling is fallback)
         async function fetchWithRetry(url, options, maxRetries = 6) {
+            // ... (existing content) ...
             if (!checkApiKey()) throw new Error("請先設定 API Key");
-
+            // ...
+            // (Just keeping existing logic, essentially)
             const delays = [1000, 2000, 4000, 8000, 16000, 32000];
             for (let i = 0; i < maxRetries; i++) {
                 try {
                     const response = await fetch(url, options);
+                    // ... (rest as before)
                     if (response.ok) return await response.json();
 
                     if (response.status === 400 && url.includes('key=')) {
@@ -609,6 +650,7 @@
                 }
             }
         }
+
 
         // Settings Modal 邏輯
         if ($('#settings-btn')) {
@@ -936,19 +978,61 @@
             }
         }
 
+
+        // Queue Processing
         $('#process-all-btn').onclick = async () => {
             const pending = slots.filter(s => s.originalBase64 && !s.resultImg.src.startsWith('data'));
             if (pending.length === 0) return;
-            showToast(`佇列啟動：開始依序處理 ${pending.length} 張圖片...`);
-            pending.forEach(s => { s.waitingOverlay.classList.remove('hidden'); s.waitingOverlay.style.display = 'flex'; });
-            for (const s of pending) {
-                s.waitingOverlay.classList.add('hidden');
-                s.waitingOverlay.style.display = 'none';
-                await processSlot(s.index);
-                await wait(2000);
+
+            showToast(`佇列啟動：共 ${pending.length} 張圖片 (${apiTier === 'free' ? '免費模式: 慢速穩定' : '付費模式: 高速併發'})`);
+
+            // Set pending state
+            pending.forEach(s => {
+                s.waitingOverlay.classList.remove('hidden');
+                s.waitingOverlay.style.display = 'flex';
+            });
+
+            if (apiTier === 'free') {
+                // Free Tier: Strictly Sequential with Forced Delay (4s)
+                for (const s of pending) {
+                    const startTime = Date.now();
+                    s.waitingOverlay.classList.add('hidden');
+                    s.waitingOverlay.style.display = 'none';
+
+                    await processSlot(s.index);
+
+                    // Force minimum 4.2s interval to be safe for 15 RPM
+                    const elapsed = Date.now() - startTime;
+                    const remaining = 4200 - elapsed;
+                    if (remaining > 0 && s !== pending[pending.length - 1]) {
+                        await wait(remaining);
+                    }
+                }
+            } else {
+                // Paid Tier: Parallel Processing (Pool size 5)
+                const poolSize = 5;
+                const queue = [...pending];
+                const active = [];
+
+                while (queue.length > 0 || active.length > 0) {
+                    while (queue.length > 0 && active.length < poolSize) {
+                        const s = queue.shift();
+                        s.waitingOverlay.classList.add('hidden');
+                        s.waitingOverlay.style.display = 'none';
+                        const p = processSlot(s.index).then(() => {
+                            active.splice(active.indexOf(p), 1);
+                        });
+                        active.push(p);
+                    }
+                    if (active.length > 0) {
+                        await Promise.race(active);
+                    }
+                }
             }
+
             showToast('批次處理完成');
         };
+
 
         $('#clear-all-slots-btn').onclick = () => {
             // Reset to default 4 slots
